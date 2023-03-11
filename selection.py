@@ -15,11 +15,11 @@ parser.add_argument('-pv', type=float, default=0.05,help='input the p-value thre
 
 args = parser.parse_args()
 # read file(.tsv)
-f = open(args.input1)
-df = pd.read_csv(args.input2,sep = ',',index_col = 0)            # obtain the total number of species and obtain the output path
+f = open(args.input_attention)
+df = pd.read_csv(args.input_abundance,sep = ',',index_col = 0)            # obtain the total number of species and obtain the output path
 
-path = os.path.dirname(args.input2)
-file_name=(args.input2).split('/')[-1].split('.')[0]
+path = os.path.dirname(args.input_abundance)
+file_name=(args.input_abundance).split('/')[-1].split('.')[0]
 file1 = path+'/'+ file_name + "_taxa_num.csv"
 file2 = path+'/'+ file_name +'_final_taxa.tsv'
 

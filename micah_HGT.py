@@ -48,6 +48,8 @@ torch.backends.cudnn.benchmark = False
 parser = argparse.ArgumentParser(description='Training GNN on species_sample graph')
 parser.add_argument('-epoch', type=int, default=500)
 # Result
+parser.add_argument('-result_dir', type=str, default= r'/fs/ess/PCON0022/yuhan/HGT/IOM_3/co_result/',
+                     help='The address for storing the models and optimization results.')
 parser.add_argument('-input_abundance', default= None,
                       help='The address of abundance matrix.')
 parser.add_argument('-input_metabolism', default= None,
@@ -64,7 +66,7 @@ parser.add_argument('-in_dim', type=int, default=256,
                     help='Number of hidden dimension (AE)')
                     
 # GAE       
-parser.add_argument('-kl_coef', type=float, default=0.00005,              
+parser.add_argument('-kl_coef', type=float, default=0.00005,               
                     help='coefficient of regular term')
 parser.add_argument('-gamma', type=float, default=2.5,
                     help='coefficient of focal loss')
@@ -92,15 +94,13 @@ parser.add_argument('-rep', type=str, default='iT',
 parser.add_argument('-AEtype', type=int, default=1,
                     help='AEtype1: embedding node autoencoder 2:HGT node autoencode')   
                     
-
-
 args = parser.parse_args()
+# print (args.weight)
 
+file0='Micah_'+'_lr_'+str(args.lr)+str(args.epoch)+'_kl_para_'+str(args.kl_coef)+'_gamma_'+str(args.gamma)
 
-file0='Micah1_'+'_lr_'+str(args.lr)+str(args.epoch)+'_kl_para_'+str(args.kl_coef)+'_gamma_'+str(args.gamma)
-
-path = os.path.dirname(args.input_dir1)
-file_name=(args.input_dir1).split('/')[-1].split('.')[0]
+path = os.path.dirname(args.input_abundance)
+file_name=(args.input_abundance).split('/')[-1].split('.')[0]
 att_file1 = path+'/'+ file_name + "_attention.csv"
 path1 = path+'/temp'
 model_dir1=path+'/temp/'+'hgt_parameter/'
@@ -196,18 +196,18 @@ class AE(nn.Module):
         self.dim = dim
         self.fc1 = nn.Linear(dim, 512)
         self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 512)
-        self.fc4 = nn.Linear(512, dim)
+        #self.fc3 = nn.Linear(256, 128)
+        #self.fc4 = nn.Linear(128, 256)
+        self.fc5 = nn.Linear(256, 512)
+        self.fc6 = nn.Linear(512, dim)
 
     def encode(self, x):
-        h1 = F.tanh(self.fc1(x))            
-        return F.tanh(self.fc2(h1))
-	
+        h1 = F.tanh(self.fc1(x))             
+        return F.tanh(self.fc2(h1))	
 
     def decode(self, z):
-        h3 = F.tanh(self.fc3(z))
-        return F.tanh(self.fc4(h3))
-
+        h3 = F.tanh(self.fc5(z))
+        return F.tanh(self.fc6(h3))
 
     def forward(self, x):
         z = self.encode(x.view(-1, self.dim))
@@ -215,7 +215,7 @@ class AE(nn.Module):
 
 
 class focal_loss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2, num_classes=5, size_average=True):                       
+    def __init__(self, alpha=0.25, gamma=2, num_classes=5, size_average=True):             # gamma                   
         super(focal_loss,self).__init__()
         self.size_average = size_average
         if isinstance(alpha,list):
@@ -223,7 +223,7 @@ class focal_loss(nn.Module):
             print("Focal_loss alpha = {},".format(alpha))
             self.alpha = torch.Tensor(alpha)
         else:
-            assert alpha<1   
+            assert alpha<1  
             print(" --- Focal_loss alpha = {}".format(alpha))
             self.alpha = torch.zeros(num_classes)
             self.alpha[0] += alpha
@@ -233,6 +233,9 @@ class focal_loss(nn.Module):
 
     def forward(self, preds_softmax, preds_logsoft,labels):
         self.alpha = self.alpha.to(preds_softmax.device)
+        #preds_softmax = preds_softmax.view(-1,preds_softmax.size(-1))
+        #preds_logsoft = torch.log(preds_softmax)
+
         preds_softmax = preds_softmax.gather(1,labels.view(-1,1))
         preds_logsoft = preds_logsoft.gather(1,labels.view(-1,1))
         alpha = self.alpha.gather(0,labels.view(-1))
@@ -245,15 +248,16 @@ class focal_loss(nn.Module):
         return loss
 
 
+#load data
 start_time = time.time()
-print('---0:00:00---scRNA starts loading.')
-gene_cell_matrix1, gene_cell_matrix,  cell_label,gene_cell, gene_name, cell_name = load_data(args.input_dir1,sep=",",col_name = True, row_name = True)
+print('---0:00:00---species and samples information starts loading.')
+gene_cell_matrix1, gene_cell_matrix, cell_label, gene_cell, gene_name, cell_name = load_data(args.input_abundance,sep=",",col_name = True, row_name = True)
 Label_transform = LabelEncoder()
+Label_transform.fit(cell_label)
 cell_label_num = Label_transform.fit_transform(cell_label)
 num_type = len(Label_transform.classes_)
 gene_cell_matrix = gene_cell_matrix.astype('float')
 gene_cell = gene_cell.astype('float')
-#num_type = len(np.unique(cell_label.values))
 cell_set = {int(k):[] for k in cell_label_num}
 cell_name_set = {int(k):[] for k in cell_label_num}
 for j, i in enumerate(cell_label_num):
@@ -265,72 +269,64 @@ weight = []
 for i in range(num_type):
     label_count = len(cell_set[i])
     weight.append(1-(label_count/gene_cell_matrix.shape[1]))
-
-all_cell = np.array(gene_cell)
-all_cell = all_cell.T
-all_label = np.array(cell_label_num)
-all_name = np.array(cell_name)
-
+train_set = []
+train_label = []
+train_cell_name1 = []
+test_set = []
+test_label = []
+test_cell_name1 = []
+for i,k in cell_set.items():
+    train_cell1, test_cell1, train_cell1_name, test_cell1_name = split_cell_train_test(k,cell_name_set[i],train_ratio=args.num)
+    train_set.append(train_cell1)
+    test_set.append(test_cell1)
+    train_cell_name1.append(train_cell1_name)
+    test_cell_name1.append(test_cell1_name)
+    train_label.extend([i]*len(train_cell1))
+    test_label.extend([i]*len(test_cell1))
+train_cell = []
+test_cell = []
+train_cell_name = []
+test_cell_name = []
+for i in train_set:
+    for j in i:
+        train_cell.append(j)
+for i in train_cell_name1:
+    for j in i:
+        train_cell_name.append(j)
+for i in test_set:
+    for j in i:
+        test_cell.append(j)
+for i in test_cell_name1:
+    for j in i:
+        test_cell_name.append(j)
+train_cell11,train_label11,train_cell_name = shuffle(train_cell, train_label, train_cell_name)
+test_cell, test_label,test_cell_name = shuffle(test_cell, test_label, test_cell_name)
+over_num = Counter(np.array(train_label)).most_common(1)[0][1]
+oversampling =  RandomOverSampler(sampling_strategy='not majority',random_state=0)
+train_cell1, train_label1 = oversampling.fit_resample(train_cell11, train_label11)
+#print(train_label11)
+#print(train_label1)
+train_over_name=list(1 for i in range(len(train_label1)-len(train_label11)))
+train_over_cell,train_over_label,train_over_name = shuffle(train_cell1[len(train_label11):len(train_label1)],train_label1[len(train_label11):len(train_label1)],train_over_name)
+train_cell = train_cell11+train_over_cell
+train_label = train_label11+train_over_label
+#print(train_label)
+train_cell_name = train_cell_name+train_over_name
+train_cell = np.asarray(train_cell)
+test_cell = np.asarray(test_cell)
+train_label = np.asarray(train_label)
+test_label = np.asarray(test_label)
+#print(test_cell.shape)
+#print(train_cell.shape)
 cuda = args.cuda #'cpu'#-1   
 if cuda == 0:
     device = torch.device("cuda:" + "0")   
     print("cuda>>>")
 else:
     device = torch.device("cpu")
-print(device)
+# print(device)
 
-
-
-k = 10
-kf = StratifiedKFold(n_splits=k,shuffle=False)  
-oversampling =  RandomOverSampler(sampling_strategy='not majority',random_state=0)
-fold_train_index = [] 
-fold_test_index = [] 
-fold_train_cell = {i:[] for i in range(k)}
-fold_train_label = {i:[] for i in range(k)}
-fold_train_name = {i:[] for i in range(k)}
-fold_name = {i:[] for i in range(k)}
-fold_test_cell = {i:[] for i in range(k)}
-fold_test_label = {i:[] for i in range(k)}
-fold_test_name = {i:[] for i in range(k)}
-fold_over_cell = {i:[] for i in range(k)}
-fold_over_label = {i:[] for i in range(k)}
-fold_over_name = {i:[] for i in range(k)}
-fold_train_encoded2 = dict()
-fold_test_encoded2 = dict()
-fold_gene = dict()
-for  train_index , test_index in kf.split(all_cell,all_label):
-    fold_train_index.append(train_index)
-    fold_test_index.append(test_index)
-fold_train_index = np.array(fold_train_index).reshape([k,-1])
-fold_test_index = np.array(fold_test_index).reshape([k,-1])
-for i in range(k):
-    n = list(fold_train_index[i])
-    m = list(fold_test_index[i])
-    fold_train_cell[i], fold_train_label[i],fold_train_name[i] = all_cell[n], all_label[n], all_name[n]
-    fold_test_cell[i], fold_test_label[i],fold_test_name[i] = all_cell[m], all_label[m], all_name[m]
-    fold_train_cell[i] = np.squeeze(fold_train_cell[i])
-    fold_train_label[i]= np.squeeze(fold_train_label[i])
-    fold_train_name[i] = np.squeeze(fold_train_name[i])
-    fold_test_cell[i]= np.squeeze(fold_test_cell[i])
-    fold_test_label[i]= np.squeeze(fold_test_label[i])
-    fold_test_name[i] = np.squeeze(fold_test_name[i])
-    fold_over_cell[i], fold_over_label[i] = oversampling.fit_resample(fold_train_cell[i], fold_train_label[i])
-    fold_over_name[i] = list(1 for i in range(len(fold_over_label[i])-len(fold_train_label[i])))
-    fold_name[i] = np.concatenate((fold_train_name[i],fold_over_name[i]),axis=0)
-    fold_train_cell[i], fold_train_label[i],fold_train_name[i] = shuffle(fold_over_cell[i], fold_over_label[i], fold_name[i])
-    fold_train_cell[i]=np.array(fold_train_cell[i])
-    fold_train_label[i]=np.array(fold_train_label[i])
-    fold_train_name[i]=np.array(fold_train_name[i])
-
-train_cell = fold_train_cell[4]
-train_label = fold_train_label[4]
-train_cell_name = fold_train_name[4]
-test_cell = fold_test_cell[4]
-test_label = fold_test_label[4]
-test_cell_name = fold_test_name[4]
-
-print ('Autoencoder is trainning...')
+print ('Aotoencoder is trainning...')
 
 train_cell = train_cell.T
 test_cell = test_cell.T
@@ -343,7 +339,7 @@ if (args.reduction == 'AE'):
         ba = train_cell.shape[0]
     else:
         ba = 5000
-    loader1=data.DataLoader(gene,ba)  
+    loader1=data.DataLoader(gene,ba)      
 
     EPOCH_AE = 250
     model = AE(dim=train_cell.shape[1]).to(device)
@@ -362,10 +358,9 @@ if (args.reduction == 'AE'):
             optimizer.step()
             embedding1.append(encoded)	
         # print('Epoch :', epoch,'|','train_loss:%.12f'%loss.data)
-    if gene.shape[0]%ba!=0:     
-        torch.stack(embedding1[0:int(gene.shape[0]/ba)])           
-        a=torch.stack(embedding1[0:int(gene.shape[0]/ba)])
-        a=a.view(ba*int(gene.shape[0]/ba),args.in_dim)           
+    if gene.shape[0]%ba!=0:      
+        torch.stack(embedding1[0:int(gene.shape[0]/ba)])          
+        a=a.view(ba*int(gene.shape[0]/ba),args.in_dim)          
         encoded=torch.cat((a,encoded),0)                
 
     else:
@@ -377,7 +372,7 @@ if (args.reduction == 'AE'):
     else:
         ba1 = 5000  
     cell = torch.tensor(train_cell.T,dtype=torch.float32).to(device) 
-    if test_cell.shape[1]<5000:         
+    if test_cell.shape[1]<5000:        
         ba2 = test_cell.shape[1]
     else:
         ba2 = 5000
@@ -385,7 +380,7 @@ if (args.reduction == 'AE'):
     loader2=data.DataLoader(cell,ba1)
     loader3=data.DataLoader(cell1,ba2)
     model2 = AE(dim=train_cell.shape[0]).to(device)
-    optimizer2 = optim.Adam(model2.parameters(), lr=1e-3)
+    optimizer2 = optim.Adam(model2.parameters(), lr=1e-3)#,weight_decay=1e-2)
     EPOCH_AE2 = 250
     for epoch in range(EPOCH_AE2):
         embedding1=[]
@@ -426,15 +421,18 @@ plt.plot(l2,'r-')
 plt.plot(l3,'g-')
 plt.title('train-test loss per iteration')
 plt.savefig(model_dir3+'sample_'+str(file0)+'.png')
-if (args.reduction == 'raw'):          
+if (args.reduction == 'raw'):           
       encoded = torch.tensor(gene_cell,dtype=torch.float32).to(device)
       encoded2 =torch.tensor(np.transpose(gene_cell),dtype=torch.float32).to(device)
 
+#if os.path.exists(model_dir2) == False:
+ #   os.mkdir(model_dir2)
+#torch.save(model2.state_dict(),model_dir2+file0)
 
-if args.input_dir2 != None:
+if args.input_metabolism != None:
     gene_name11 =[str(i) for i in gene_name.astype('int64')]
     gene_name12 =[int(i) for i in gene_name]
-    species_species = pd.read_csv(args.input_dir2,sep=",",index_col=0)
+    species_species = pd.read_csv(args.input_metabolism,sep=",",index_col=0)
     species_species = species_species.loc[:,gene_name11]
     species_species = species_species.loc[gene_name12,:]
     species_name = species_species.columns.values
@@ -451,8 +449,8 @@ else:
     edge22 = list(c22)
     
     
-if args.input_dir3 != None:
-    species_species1 = pd.read_csv(args.input_dir3,sep=",",index_col=0)
+if args.input_phylogeny != None:
+    species_species1 = pd.read_csv(args.input_phylogeny,sep=",",index_col=0)
     species_species1 = species_species1.loc[:,gene_name11]
     species_species1 = species_species1.loc[gene_name12,:]
     species_name1 = species_species1.columns.values
@@ -642,7 +640,7 @@ for epoch in np.arange(args.epoch):
                                edge_type.to(device))
     train_att1 = gnn.att1
     train_att2 = gnn.att2            
-    if args.rep =='T':
+    if args.rep =='T':#为了结果可复现
         node_rep = torch.trunc(node_rep*10000000000)/10000000000
         if args.reduction=='raw':
             for t in types:

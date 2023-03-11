@@ -4,7 +4,7 @@
 
 ## Description ##
 
-MICAH provides an explainable deep learning framework to identify cancer-associated intratumoral microbial communities. The microbial species-sample abundance matrix is required input in MICAH, while metabolic and phylogenetic relation matrices are optional inputs. The output is microbial communities composed of species with significantly high attention scores for each cancer type. 
+MICAH provides an explainable graph neural framework to identify cancer-associated intratumoral microbial communities. The microbial species-sample abundance matrix is required input in MICAH, while metabolic and phylogenetic relation matrices are optional inputs. The output is microbial communities composed of species with significantly high attention scores for each cancer type. 
 
 If you have any questions or feedback, please contact Qin Ma qin.ma@osumc.edu.
 
@@ -29,13 +29,20 @@ You can construct conda environment named micah and install these dependencies.
 
 	conda create -n micah
 	conda activate micah
-	conda install pytorch==1.3.0 torchvision==0.4.1 torchaudio==0.3.1 cpuonly -c pytorch
-	pip install torch-scatter==1.3.2 torch-sparse==0.4.3 torch-cluster==1.4.5 torch-spline-conv==1.1.1 torch-geometric==1.3.2 -f https://data.pyg.org/whl/torch-1.3.0%2Bcpu.html
+	conda install python==3.7.16
+	conda install r-base
+	pip install torch==1.4.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+	pip install torch-scatter==2.0.4 torch-sparse==0.6.1 torch-cluster==1.5.4 torch-spline-conv==1.2.0 torch-geometric==1.4.3 -f https://data.pyg.org/whl/torch-1.4.0%2Bcpu.html
+	conda install pandas
+	conda install matplotlib
 	conda install scikit-learn
 	pip install imbalanced-learn
 	conda install tqdm
 	pip install seaborn
 	pip install dill
+	R
+	>install.packages('taxizedb')
+	>q()
 
 
 ### 2. Installation
@@ -45,7 +52,7 @@ The source code of MICAH is freely available at https://github.com/OSU-BMBL/mica
 	wget https://github.com/OSU-BMBL/micah/archive/refs/heads/master.zip
 
 
-Then, unzip the file and go to the folder:
+Then, unzip the file and go to the folder.
 
 	unzip master.zip && rm -rf master.zip
 	cd ./micah-master
@@ -57,7 +64,7 @@ Then, unzip the file and go to the folder:
 
 In the microbial species-sample abundance matrix, the first row represents the sample names; the first column represents microbial species indicated by NCBI taxonomy ID; and the entry represents the relative abundance of a species in the corresponding sample. The last row represents sample labels. 
 
-We provide a microbial relative abundance matrix, **./data/tcma.csv**, as an example. You can obtain the results in our paper based on this data. 
+We provide a microbial relative abundance matrix, **./data/tcma.csv**, as an example. 
 
 Note: The following commands will run using this data as an example. You can change this into your own abundance matrix.
 
@@ -101,7 +108,7 @@ Note: The name of microbial species must keep the same format as that in the abu
 ### 4. Running
 
 #### 4.1 Assess the metabolic and phylogenetic relations
-This step is to assess metabolic and phylogenetic relations among microbial species. If you have metabolic and phylogenetic relation matrices, please skip this. 
+This step is to assess metabolic and phylogenetic relations among microbial species. If you have metabolic and phylogenetic relation matrices, please skip this step. 
 
 
 	python ./extract_metabolic_relation.py -input ./data/tcma.csv
@@ -112,7 +119,7 @@ This step is to assess metabolic and phylogenetic relations among microbial spec
 	rm -rf ./data/*_species_list_phy_relation.csv
 
 
-After these commands, you can obtain two result files with suffix metabolic\_matrix.csv and phy\_matrix.csv in the folder ./data/, representing the metabolic and phylogenetic matrices, respectively. 
+After these commands, you can obtain two result files with suffix metabolic\_matrix.csv and phy\_matrix.csv in the folder ./data/, representing the metabolic and phylogenetic matrices, respectively. **The coresponding results of the tcma.csv data are in the folder ./data/, named tcma\_metabolic\_matrix.csv and tcma\_phy\_matrix.csv.**
 
 
 #### 4.2 Train a graph attention transformer for sample classification
@@ -122,19 +129,20 @@ This step is to train a graph attention transformer for sample classification. T
 
 	python ./micah_HGT.py -input_abundance ./data/tcma.csv -input_metabolism ./data/*_metabolic_matrix.csv -input_phylogeny ./data/*_phy_matrix.csv 
 
-You can obtain the attention matrix in the folder ./data/, with suffix attention.csv. This is used for identifying cancer-associated microbial communities following. 
+You can obtain the attention matrix in the folder ./data/, with suffix \_attention.csv. This is used for identifying cancer-associated microbial communities following. **The coresponding result of the tcma.csv data is in the folder ./data/, named tcma\_attention.csv.**
 
-You can also obtain the classification performance (including accuracy, precision, recall, F1_score) and loss curve of the model in the folder ./micah/data/temp.
-
+You can also obtain the classification performance (including accuracy, precision, recall, F1_score) and loss curve of the model in the folder ./data/temp.
   
 #### 4.3 Output the cancer-associated microbial communities
 
-This step is to output cancer-associated intratumoral microbial communities. The attention matrix from step 3.2 and the abundance matrix are used as input here. 
+This step is to output cancer-associated intratumoral microbial communities. The attention matrix from step 4.2 and the abundance matrix are used as input here. 
 
  
 	python ./selection.py -input_attention ./data/*_attention.csv -input_abundance ./data/tcma.csv 
 
-You can obtain a file with suffix **_final_taxa.tsv** in the folder ./data/. It includes identified communities from MICAH, in which the first column indicates cancer type, followed by the communities consisting of microbial species. The other file with suffix _taxa_num.csv in the folder ./data/ includes the number of samples of a certain cancer each taxa significantly contribute to. More samples means the species is more likely to be associated with the cancer type.
+You can obtain a file with suffix **\_final\_taxa.tsv** in the folder ./data/. It includes identified communities from MICAH, in which the first column indicates cancer type, followed by the communities consisting of microbial species. **The coresponding result of the tcma.csv data is in the folder ./data/, named tcma\_final\_taxa.tsv.**
+
+The other file with suffix \_taxa\_num.csv in the folder ./data/ includes the number of samples of a certain cancer each taxa significantly contribute to. More samples means the species is more likely to be associated with the cancer type. **The coresponding result of the tcma.csv data is in the folder ./data/, named tcma\_taxa\_num.csv.**
    
 ### 5. Others
 

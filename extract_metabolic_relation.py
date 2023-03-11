@@ -5,7 +5,6 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
-# The NJS16 file should be put in the same folder with the input abundance data'
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='The abundance matrix: NCBI taxonomy id as rows and samples names as columns, final row is cancer_label')
@@ -20,6 +19,7 @@ species_list = map(lambda x: str(x), species_list)         # transfer the specie
 
 # output file "*_metabolic_relation.tsv"
 path = os.path.dirname(args.input)
+path1 = os.path.dirname(path)
 file_name=(args.input).split('/')[-1].split('.')[0]
 file_1 = path+'/'+ file_name + "_njs16.csv"
 file_2 = path+'/'+ file_name + "_njs16_norm.txt"
@@ -28,7 +28,7 @@ file_4 = path+'/'+ file_name + "_metabolic_relation.tsv"
 file_5 = path+'/'+ file_name + "_species_list.tsv"
 
 # Need to be checked
-df_njs16 = pd.read_csv(path + '/' + 'NJS16_metabolic_relation.txt',sep = '\t')
+df_njs16 = pd.read_csv(path1 + '/' + 'NJS16_metabolic_relation.txt',sep = '\t')
 
 # obtain the contained species and metabolic compound in NJS16
 df_njs16 = df_njs16[df_njs16['taxonomy ID'].isin(species_list)]
